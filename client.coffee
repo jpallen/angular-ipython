@@ -6,8 +6,18 @@ client = require("./app/coffee/IPythonClient").createClient(config)
 client.on "heartbeat", (timestamp) ->
 	console.log "Got heartbeat", timestamp
 	
-client.sendMessage "connect_request", {}, (error, content, metadata) ->
-	console.log "REPLY", content, metadata
+client.sendMessage "execute_request", {
+	code: """
+	%matplotlib inline
+	plt.plot(np.random.normal(size=100), np.random.normal(size=100), 'ro')
+	"""
+	silent: false
+	store_history: true
+	user_variables: []
+	user_expressions: {}
+	allow_stdin: false
+}, (error, type, content, metadata) ->
+	console.log "REPLY", type, content, metadata
 
 # shell_socket.on "message", (message) ->
 # 	for key, value of arguments

@@ -14,6 +14,7 @@ module.exports = class IPythonClient extends EventEmitter
 		
 		@_createSockets()
 		@_listenForReplies()
+		@_listenOnPubSub()
 		@_startHeartbeats()
 	
 	sendMessage: (type, content, metadata = {}, callback = (error, reply) ->) ->
@@ -34,7 +35,7 @@ module.exports = class IPythonClient extends EventEmitter
 		content = JSON.stringify content
 		metadata = JSON.stringify metadata
 		
-		signature = @_signMessage(header, parent_header, content, metadata)
+		signature = @_signMessage(header, parent_header, metadata, content)
 		
 		message = [
 			@identity
@@ -50,14 +51,14 @@ module.exports = class IPythonClient extends EventEmitter
 		
 		@_messageCallbacks[msg_id] = callback
 		
-	_signMessage: (header, parent_header, content, metadata) ->
+	_signMessage: (header, parent_header, metadata, content) ->
 		return "" if !@config.key? or @config.key == ""
 		
 		hmac = crypto.createHmac("sha256", @config.key)
 		hmac.update(header)
 		hmac.update(parent_header)
-		hmac.update(content)
 		hmac.update(metadata)
+		hmac.update(content)
 		
 		return hmac.digest("hex")
 		
@@ -70,12 +71,20 @@ module.exports = class IPythonClient extends EventEmitter
 		@sockets.hb.connect "tcp://#{@config.ip}:#{@config.hb_port}"
 		@sockets.shell = zmq.createSocket("dealer")
 		@sockets.shell.connect "tcp://#{@config.ip}:#{@config.shell_port}"
+		@sockets.iopub = zmq.createSocket("sub")
+		@sockets.iopub.connect "tcp://#{@config.ip}:#{@config.iopub_port}"
 		
 	_listenForReplies: () ->
 		@sockets.shell.on "message", (args...) =>
-			@_handleMessage(args...)
+			@_handleReply(args...)
 			
-	_handleMessage: (args...) ->
+	_handleReply: (args...) ->
+		[header, parent_header, metadata, content] = @_deserializeMessage(args...)
+		callback = @_messageCallbacks[parent_header.msg_id]
+		delete @_messageCallbacks[parent_header.msg_id]
+		callback?(null, header.msg_type, content, metadata)
+		
+	_deserializeMessage: (args...) ->
 		args = args.map (a) -> a.toString()
 		identities = []
 		while (args.length > 0 and (identity = args.shift()) != "<IDS|MSG>")
@@ -91,10 +100,20 @@ module.exports = class IPythonClient extends EventEmitter
 		metadata = JSON.parse(metadata)
 		content = JSON.parse(content)
 		
-		callback = @_messageCallbacks[parent_header.msg_id]
-		delete @_messageCallbacks[parent_header.msg_id]
+		return [header, parent_header, metadata, content]
 		
-		callback?(null, content, metadata)
+	_listenOnPubSub: () ->
+		@sockets.iopub.subscribe ""
+		@sockets.iopub.on "message", (args...) =>
+			[header, parent_header, metadata, content] = @_deserializeMessage(args...)
+
+			# Don't delete the callback here since it may be called multiple times
+			# The last time is when we receive a reply to the actual message we sent
+			# which is handled by the shell channel.
+			callback = @_messageCallbacks[parent_header.msg_id]
+			callback?(null, header.msg_type, content, metadata)
+			
+			@emit "output", header.msg_type, content, metadata
 		
 	HEARTBEAT_INTERVAL: 1000 # milliseconds
 	_startHeartbeats: () ->
