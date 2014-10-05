@@ -1,0 +1,102 @@
+doctype
+
+html
+	head
+		script(src="//ajax.googleapis.com/ajax/libs/angularjs/1.3.0-rc.4/angular.min.js")
+		script(src="//ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js")
+		script(src="/json0.js")
+		script(src="/share.js")
+		script(src="/channel/bcsocket.js")
+		script(src="/vendor/ace/ace.js")
+		script(src="/vendor/marked.js")
+		
+		style.
+			.cell {
+				margin: 0.6rem;
+				padding-left: 1rem;
+				margin-left: 0.2rem;
+				border-left: 3px solid transparent;
+			}
+			
+			.cell:hover {
+				border-color: #ccc;
+			}
+			
+			.worksheet {
+				max-width: 800px;
+				margin: auto;
+			}
+			
+			.code-cell-input {
+				padding-bottom: 0.4rem;
+				border-bottom: 2px solid #ddd;
+			}
+			
+			.code-cell-outputs {
+				margin-left: 0.6rem;
+				padding: 0.4rem;
+				border-left: 2px solid #ddd;
+			}
+			
+			.code-cell-outputs-bottom-tab {
+				width: 30px;
+				border-top: 2px solid #ddd;
+				margin-left: 0.6rem;
+			}
+			
+			.code-cell-outputs pre {
+				margin: 0;
+			}
+			
+			.code-cell-no-output {
+				color: #999;
+				font-family: monospace;
+			}
+			
+			ip-editor {
+				display: block;
+			}
+		
+		
+	html
+		div(ng-controller="NotebookController")
+			div.worksheet(ng-repeat="worksheet in notebook.worksheets", ng-init="$worksheetIndex = $index")
+				div.cell(ng-repeat="cell in worksheet.cells", ng-init="$cellIndex = $index")
+					// TODO: multi line source, levels
+					div(ng-if="cell.cell_type == 'heading'")
+						h1 {{ cell.source.join("\n") }}
+
+					div.markdown-cell(ng-if="cell.cell_type == 'markdown'", ng-controller="MarkdownCellController")
+						ip-editor(
+							ng-show="mode == 'input'"
+							ip-lines="cell.source"
+							ip-path="worksheets.{{$worksheetIndex}}.cells.{{$cellIndex}}.source"
+							ip-editor-mode="markdown"
+							ip-editor-on-change="onCellChange"
+							ip-editor-on-blur="switchToOutput"
+						).markdown-cell-input
+						div.markdown-cell-output(
+							ng-show="mode == 'output'"
+							ng-bind-html="html"
+							ng-click="switchToInput()"
+						)
+
+					div.code-cell(ng-if="cell.cell_type == 'code'")
+						ip-editor(
+							ip-lines="cell.input"
+							ip-path="worksheets.{{$worksheetIndex}}.cells.{{$cellIndex}}.input"
+							ip-editor-mode="python"
+						).code-cell-input
+						div.code-cell-outputs
+							div(ng-if="!cell.outputs || cell.outputs.length == 0")
+								div.code-cell-no-output No output
+							div(ng-repeat="output in cell.outputs")
+								div(ng-if="output.output_type == 'pyout'")
+									pre {{ output.text.join("") }}
+								div(ng-if="output.output_type == 'display_data'")
+									img(ng-if="output.png", ng-src="data:image/png;base64,{{ output.png }}")
+								div(ng-if="output.output_type == 'stream'")
+									pre {{ output.text.join("") }}
+						div.code-cell-outputs-bottom-tab
+						
+	script(src="/vendor/require.js", data-main="/js/notebook")
